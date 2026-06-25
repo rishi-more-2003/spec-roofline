@@ -13,15 +13,15 @@ Hardware: RTX 4070 Laptop, 8 GB, sm_89. Target `Qwen2.5-1.5B-Instruct`, draft
   target forward** — 32 tokens in **7** expensive target steps instead of **33**
   (**4.7× fewer**). This is implementation-independent. *Wall-clock is net-negative
   (0.27–0.85×) at 1.5B:0.5B on 8 GB — analysed below, not hidden.*
-- **The lossy knob moves the needle, and we draw its scope.** On the diverse
-  prompts it is calibrated on, leniency lifts accepted-per-call along a real,
-  monotone frontier — **3.37 → 4.48 (+33%)** as γ→0.9 — but the frontier is
-  *steep* (risk climbs 0 → 0.65). Under the RCPS warranty the deployable gain is
-  therefore **small for this strong-draft pair: +1.1% at α=0.3** (γ=0.3, realised
-  loss 0.067 ≤ 0.3), nothing at α≤0.2. The honest finding is the **boundary**: a
-  0.5B draft already accepts 84–100%, so there is almost nothing for leniency to
-  recover at bounded loss. The knob is a lever for *weak-draft / high-entropy*
-  regimes; this pair has no slack to give. See [Headroom](#where-the-lossy-knob-buys-speed-headroom).
+- **The lossy knob earns its billing — in its home regime, sampling.** A
+  distribution-preserving verify with a distribution-free warranty needs a
+  *distribution to preserve*: under greedy the target is a point mass and the knob
+  is near-inert (+1.1% at α=0.3). Under **sampling (T=1.0)**, with the right
+  **distributional** risk (emission TV vs the target), the RCPS warranty certifies
+  (held-out) **γ=0.4 at α=0.3 and buys ~+16% accepted-tokens-per-call** at realised
+  TV 0.107 ≤ 0.3. The frontier is flat (acc/call +46% by γ=0.9 at TV only 0.26). The finding
+  is the **regime dependence** — the knob's value tracks target entropy — and it is
+  exactly what the conformal framing predicts. See [Headroom](#where-the-lossy-knob-buys-speed-headroom).
 - **The honest caveat (wall-clock):** in this pure-Python reference harness the
   step-count win does **not** convert to wall-clock tok/s. With a 1.5B:0.5B
   target:draft ratio (~3×), one target forward does not dominate the 4 draft
@@ -46,22 +46,33 @@ Hardware: RTX 4070 Laptop, 8 GB, sm_89. Target `Qwen2.5-1.5B-Instruct`, draft
 
 ## §7 Gate 2 — lossy (RCPS coverage)
 
-Knob = `γ` (top-mass / nucleus-gated acceptance). Risk = token-disagreement rate
-vs the lossless-spec continuation (== target, per Gate 1). RCPS with an empirical-
-Bernstein UCB, δ=0.1, n_cal=80, n_test=40. **realised loss ≤ α for every α ⇒ PASS.**
+RCPS with an empirical-Bernstein UCB (δ=0.1), calibrate γ on a cal split, report
+**realised loss on a disjoint held-out test split**. **realised ≤ α for every α ⇒
+PASS.** Run in both regimes; the *sampling* one is the warranty's home.
 
-| target α | calibrated γ | cal UCB | realised test loss | valid |
-|---:|---:|---:|---:|:--:|
-| 0.02 | 0.0 | — | 0.000 | ✓ |
-| 0.05 | 0.0 | — | 0.000 | ✓ |
-| 0.10 | 0.0 | 0.089 | 0.000 | ✓ |
-| 0.20 | **0.2** | 0.176 | 0.010 | ✓ |
-| 0.30 | **0.3** | 0.242 | 0.063 | ✓ |
+**Sampling (T=1.0), distributional risk = emission TV vs target** (n_cal=40,
+n_test=40, `results/lossy_coverage_sampling.csv`) — **PASS 5/5**:
 
-The bound is honoured with margin (realised ≪ α): RCPS is conservative by design.
-Leniency only deploys once the budget is loose enough to certify it through the
-finite-sample UCB — at tight α the calibrator correctly falls back to the exact
-rule (γ=0). Plot: `results/coverage.png` (all points below the realised=α line).
+| target α | calibrated γ | realised held-out TV | valid |
+|---:|---:|---:|:--:|
+| 0.02 / 0.05 / 0.10 | 0.0 | 0.000 | ✓ |
+| 0.20 | 0.05 | 0.016 | ✓ |
+| 0.30 | **0.4** | 0.107 | ✓ |
+
+This is the gate that matters: under sampling the knob is *active* (γ=0.4 deployed,
++16% acc/call) and the warranty still holds out-of-sample.
+
+**Greedy, risk = token-disagreement vs the lossless path** (n_cal=80, n_test=40,
+`results/lossy_coverage.csv`) — **PASS 5/5**, but the knob is near-inert here (γ≤0.3,
+gain +1.1%), so coverage is satisfied mostly by falling back to the exact rule:
+
+| target α | 0.02 | 0.05 | 0.10 | 0.20 | 0.30 |
+|---|---|---|---|---|---|
+| calibrated γ | 0.0 | 0.0 | 0.0 | 0.2 | 0.3 |
+| realised test loss | 0.000 | 0.000 | 0.000 | 0.010 | 0.063 |
+
+Both honour the bound with margin (realised ≪ α): RCPS is conservative by design.
+Plot: `results/coverage.png`.
 
 ## Baseline vs lossless vs lossy — throughput
 
@@ -79,7 +90,7 @@ forwards** (the roofline unit); **acc/call = tokens emitted per target forward.*
 | 16384 | all | — | — | — | **OOM** |
 
 Read this two ways:
-- **Step-count (the contribution):** lossless/lossy cut target forwards 33→7
+- **Step-count (the roofline lever):** lossless/lossy cut target forwards 33→7
   (**4.7×** fewer expensive steps) at *identical* output. This is the HBM-bound
   lever the trilogy is about — the cheapest token is the one you never run the big
   model for.
@@ -90,47 +101,65 @@ Read this two ways:
 
 ## Where the lossy knob buys speed (headroom)
 
-`results/headroom_sweep.csv` + `headroom_calibrated.csv`
-(`python -m spec_roofline.cli headroom`). The lossy knob is the contribution, so
-this measures it where it is *calibrated* — the diverse prompt distribution, model
-drafter — not the repetitive throughput prompts (where the target is so confident
-the knob never bites and lossy trivially ties lossless).
+The knob is the contribution, so this measures *where it actually beats lossless*.
+The decisive variable is **target entropy**, and that is set by the decode regime
+(`python -m spec_roofline.cli headroom [--greedy]`).
 
-**The speed↔fidelity frontier (model drafter, 60 diverse prompts):**
+### Sampling — the knob's home (T=1.0, 50 open-ended prompts) — `results/headroom_sampling_*.csv`
 
-| γ | acc/call | Δ vs lossless | mean risk |
+Under sampling there is a real distribution to preserve, so the right risk is the
+**distributional emission TV** — `TV(p_γ ‖ p)`, how far relaxed acceptance moves the
+emission distribution from the target's true next-token distribution (closed-form
+from the target `p` and draft `q`; 0 at γ=0 by the speculative-sampling identity;
+low-variance, not noisy token-match).
+
+| γ | acc/call | Δ vs lossless | TV risk |
 |---:|---:|---:|---:|
-| 0.0 | 3.37 | — | 0.000 |
-| 0.2 | 3.36 | −0.2% | 0.013 |
-| 0.3 | 3.41 | **+1.1%** | 0.067 |
-| 0.4 | 3.46 | +2.7% | 0.155 |
-| 0.5 | 3.64 | +8.1% | 0.233 |
-| 0.7 | 3.86 | +14% | 0.462 |
-| 0.9 | 4.48 | **+33%** | 0.649 |
+| 0.0 | 2.89 | — | 0.000 |
+| 0.1 | 2.94 | +2.0% | 0.032 |
+| 0.3 | 3.16 | +9.6% | 0.084 |
+| 0.5 | 3.40 | +17.7% | 0.137 |
+| 0.7 | 3.81 | +32% | 0.195 |
+| 0.9 | 4.21 | +46% | 0.257 |
 
-**The quantity moves** — leniency lifts accepted-per-target-call up to +33%. But the
-frontier is *steep*: risk (token-disagreement vs the lossless/target path) climbs to
-0.65 by γ=0.9. Whether that speed is worth taking is exactly what the warranty
-decides.
+The frontier is **flat** — acc/call climbs +46% while TV reaches only 0.26 — because
+a high-entropy target spreads mass over near-synonyms, so accepting a draft token in
+that mass is nearly free.
 
-**What the RCPS warranty actually deploys (the receipt):**
+What the RCPS warranty deploys, on a **held-out** split (40 cal + 40 disjoint test,
+`results/lossy_coverage_sampling.csv` — the §7 lossy gate in its home regime):
 
-| target α | calibrated γ | acc/call | lift vs lossless | realised loss | valid |
+| target α | calibrated γ | acc/call @ γ | **lift vs lossless** | realised TV (held-out) | valid |
 |---:|---:|---:|---:|---:|:--:|
-| 0.02 / 0.05 / 0.10 | 0.0 | 3.37 | 1.00× | 0.000 | ✓ |
-| 0.20 | 0.2 | 3.36 | 1.00× | 0.013 | ✓ |
-| 0.30 | **0.3** | 3.41 | **+1.1%** | 0.067 | ✓ |
+| 0.02 / 0.05 / 0.10 | 0.0 | 2.89 | 1.00× | 0.000 | ✓ |
+| 0.20 | 0.05 | 2.91 | +0.8% | 0.016 | ✓ |
+| 0.30 | **0.4** | 3.35 | **+16%** | 0.107 | ✓ |
 
-**The honest result.** The deployable, warranty-backed gain is **small for this
-pair — +1.1% acc/call at α=0.3, nothing tighter.** This is not a knob failure; it
-is the *boundary*, measured: a 0.5B draft already accepts 84–100%, and the few
-exact-verify rejections are **far-misses** (a rejected token is usually deep in the
-target's tail, not a near-miss), so admitting them costs disproportionate quality.
-Leniency pays where the draft is *weak* (many recoverable rejections) or the target
-is *high-entropy* (cheap near-misses) — a well-aligned 1.5B/0.5B greedy pair is
-neither. The knob is built, gated, and its useful regime is drawn rather than
-oversold. (Contrast: the prompt-lookup drafter on these non-repetitive prompts
-barely proposes — acc/call 1.02, flat across γ — the other end of "no headroom".)
+**At α=0.3 the warranty certifies γ=0.4 and buys ~+16% accepted-tokens-per-call at a
+held-out distributional loss of 0.107 ≤ 0.3.** (In-sample RCPS on the 50-prompt sweep
+deploys γ=0.5 / +17.7%; held-out is slightly more conservative, as expected.) This is
+the knob earning its billing: the distribution-preserving verify and the
+distribution-free warranty bite exactly where there *is* a distribution — sampling.
+
+### Greedy — the honest contrast (60 diverse prompts) — `results/headroom_greedy_*.csv`
+
+Under greedy the target is a point mass; the lossless reference is the argmax and
+every rejection is a non-argmax token, many deep in the tail (**far-misses**). So
+leniency can only buy drift: the frontier reaches +33% acc/call (γ=0.9) but the
+risk has climbed to 0.65, and the warranty-deployed gain is just **+1.1% at α=0.3**.
+
+| regime | warranty-deployed gain @ α=0.3 (held-out) | risk type |
+|:--|:--|:--|
+| **sampling (T=1.0)** | **~+16% acc/call** (γ=0.4) | emission TV 0.107 |
+| greedy | +1.1% acc/call (γ=0.3) | token-disagreement 0.063 |
+
+**The finding is the regime dependence, and it is the point of the framing:** a
+relaxed-acceptance knob under a *distribution-free* warranty is decoration in the
+one regime (greedy) where there is no distribution to preserve, and a real
+speed↔fidelity lever in the regime (sampling) where there is. The knob's value
+tracks target entropy; it also widens with a weaker draft (more recoverable
+rejections). Prompt-lookup on non-repetitive prompts barely proposes (acc/call 1.02,
+flat across γ) — the other end of "no headroom".
 
 ## Acceptance rate vs K / context / drafter
 
@@ -244,13 +273,17 @@ What pays and what does not, measured:
   relative to a 0.5B draft + Python overhead, and two KV caches exhaust 8 GB at
   long context. (Non-goals, taskspec §1; the trilogy's lesson — the 8 GB memory
   wall decides where a lever pays off.)
-- **Lossy leniency: pays a little, and we say how little.** +1.1% acc/call at the
-  loosest certified budget (α=0.3); the frontier reaches +33% but at a quality cost
-  no sane α accepts. The boundary is the finding: a strong, well-aligned draft
-  leaves almost nothing for leniency to recover at bounded loss.
+- **Lossy leniency: pays where there is a distribution to preserve.** In its home
+  regime (sampling), the warranty deploys (held-out) **γ=0.4 at α=0.3 for ~+16%
+  acc/call** at certified distributional loss — a real, warranty-backed speed lever.
+  Under greedy
+  (a point-mass target) the same knob is near-inert (+1.1%). The regime dependence
+  is the result, and it is what the conformal framing predicts: a distribution-free
+  warranty bites where there is a distribution.
 
-Framed as judgment, not as a win: the value here is showing *where* two speculative
-levers pay off and proving *why* they don't where they don't — and a knob whose
-warranty is honoured even when the headroom it governs is small. The regime where
-all of this converts to latency — a larger target, a fused backend, the α budget
-shared across levers — is `conformal-serve` (taskspec §10).
+Framed as judgment: the value is showing *where* each lever pays and proving *why*
+where it doesn't — the step-count win is implementation-bound on wall-clock, and the
+lossy knob is entropy-bound (real under sampling, decoration under greedy). The
+warranty holds in both. The regime where all of this converts to latency — a larger
+target, a fused backend, the α budget shared across levers — is `conformal-serve`
+(taskspec §10).

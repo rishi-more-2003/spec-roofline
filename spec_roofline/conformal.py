@@ -11,17 +11,21 @@ The knob (lossy.py): gamma, the top-mass acceptance leniency. Quality loss is
 *monotone non-decreasing* in gamma (more leniency -> more drift), so scanning
 gamma descending returns the most aggressive valid setting.
 
-THE RISK METRIC (ours to define, taskspec §9.3): for a prompt, the reference is
-the **lossless-spec** greedy continuation (gamma=0) — which the §7 lossless gate
-independently certifies is token-for-token equal to the *target's* greedy output.
-The lossy run's risk is the token-disagreement rate against that reference over the
-generated window — in [0,1], structurally 0 at gamma=0 (same code path), monotone
-in gamma. Referencing the lossless-spec path (not a separate sequential baseline)
-keeps gamma=0 at exactly zero risk; a sequential baseline reintroduces a spurious
-floor because batched-verify vs one-token-at-a-time forwards can tie-break greedy
-argmax differently, and greedy decode cascades a single early difference. The
-warranty bounds "how far did relaxing acceptance pull us off the lossless path",
-which (by the gate) is the target's path.
+THE RISK METRIC (ours to define, taskspec §9.3) — two regimes:
+
+  * sampling (the knob's home): risk = the per-step **emission TV(p_gamma || p)**
+    (lossy.emission_tv), how far relaxed acceptance moves the realised next-token
+    distribution from the target's true one. A *distributional* quantity — 0 at
+    gamma=0 by the speculative-sampling identity, low-variance, in [0,1]. This is
+    what the distribution-free warranty is *for*; under sampling the knob is active
+    and RCPS certifies meaningfully higher gamma at bounded alpha.
+
+  * greedy: risk = token-disagreement vs the **lossless-spec** greedy continuation
+    (gamma=0) — which the §7 lossless gate certifies equals the target's greedy
+    output. Referencing the lossless-spec path (not a sequential baseline) keeps
+    gamma=0 at exactly zero risk (no batched-vs-sequential argmax tie-break floor).
+    Under greedy the target is a point mass, so the knob barely bites — a useful
+    contrast, not the headline.
 """
 
 from __future__ import annotations
@@ -122,39 +126,74 @@ class CoverageRow:
     valid: bool
 
 
+def _risk_matrix_sample(dec, prompts, gammas, n_new, temperature, device, seed, label=""):
+    """Sampling-regime risk matrix: risk = mean per-step emission TV(p_gamma||p), the
+    *distributional* loss (conformal's natural home — there is a distribution to
+    preserve). gamma=0 -> TV 0 by the speculative-sampling identity."""
+    n = len(prompts)
+    M = torch.zeros(n, len(gammas))
+    t0 = time.perf_counter()
+    for i, ids in enumerate(prompts):
+        for j, g in enumerate(gammas):
+            gen = torch.Generator(device=device).manual_seed(seed + 1000 + i)
+            M[i, j] = dec.generate_spec(ids, n_new, mode="sample", gamma=g, gen=gen).risk_tv
+        done = i + 1
+        rate = (time.perf_counter() - t0) / done
+        bar = "#" * int(20 * done / n) + "-" * (20 - int(20 * done / n))
+        _log(f"  [{label}] [{bar}] {done}/{n}  ({rate:.1f}s/prompt, ETA {rate*(n-done):4.0f}s)")
+    return M
+
+
 @torch.no_grad()
 def run_coverage(models, cfg: Config | None = None, n_cal: int = 20, n_test: int = 20,
-                 n_new: int = 32, seed: int = 0) -> list:
+                 n_new: int = 32, seed: int = 0, sampling: bool = False,
+                 temperature: float = 1.0) -> list:
     """RCPS coverage experiment (the §7 lossy gate, reported as a curve).
 
     For each target alpha: calibrate gamma on the cal split, then report the
     realised mean risk on the held-out test split. valid <=> realised <= alpha.
+
+    Two regimes: greedy (risk = token-disagreement vs the lossless path) and
+    *sampling* (risk = distributional emission TV vs the target) — the latter is
+    where the distribution-preserving verify + distribution-free warranty bite.
     """
     from .engine import SpeculativeDecoder
-    from .data import calibration_prompts
+    from .data import calibration_prompts, open_ended_prompts
+    from dataclasses import replace as _replace
     cfg = cfg or Config()
-    dec = SpeculativeDecoder(models, cfg)
     gammas = list(cfg.lossy.gamma_grid)
-    cal, test = calibration_prompts(models.tokenizer, n_cal, n_test, seed)
-    cal = [x.to(models.device) for x in cal]
-    test = [x.to(models.device) for x in test]
+    dev = models.device
 
-    _log(f"[coverage] computing references ({len(cal)} cal + {len(test)} test)...")
-    cal_refs = [_reference(dec, x, n_new) for x in cal]
-    test_refs = [_reference(dec, x, n_new) for x in test]
-    _log(f"[coverage] cal risk matrix ({len(cal)}x{len(gammas)})...")
-    cal_M = _risk_matrix(dec, cal, cal_refs, gammas, n_new, label="cal")
-    _log(f"[coverage] test risk matrix ({len(test)}x{len(gammas)})...")
-    test_M = _risk_matrix(dec, test, test_refs, gammas, n_new, label="test")
+    if sampling:
+        cfg = _replace(cfg, draft=_replace(cfg.draft, temperature=temperature))
+        dec = SpeculativeDecoder(models, cfg)
+        cal = [x.to(dev) for x in open_ended_prompts(models.tokenizer, n_cal, seed)]
+        test = [x.to(dev) for x in open_ended_prompts(models.tokenizer, n_test, seed + 7)]
+        _log(f"[coverage/sample T={temperature}] cal matrix ({n_cal}x{len(gammas)})...")
+        cal_M = _risk_matrix_sample(dec, cal, gammas, n_new, temperature, dev, seed, "cal")
+        _log(f"[coverage/sample] test matrix ({n_test}x{len(gammas)})...")
+        test_M = _risk_matrix_sample(dec, test, gammas, n_new, temperature, dev, seed + 7, "test")
+    else:
+        dec = SpeculativeDecoder(models, cfg)
+        cal, test = calibration_prompts(models.tokenizer, n_cal, n_test, seed)
+        cal = [x.to(dev) for x in cal]
+        test = [x.to(dev) for x in test]
+        _log(f"[coverage] references ({len(cal)} cal + {len(test)} test)...")
+        cal_refs = [_reference(dec, x, n_new) for x in cal]
+        test_refs = [_reference(dec, x, n_new) for x in test]
+        _log(f"[coverage] cal risk matrix ({len(cal)}x{len(gammas)})...")
+        cal_M = _risk_matrix(dec, cal, cal_refs, gammas, n_new, label="cal")
+        _log(f"[coverage] test risk matrix ({len(test)}x{len(gammas)})...")
+        test_M = _risk_matrix(dec, test, test_refs, gammas, n_new, label="test")
+
     gidx = {g: j for j, g in enumerate(gammas)}
-
     rows = []
     for alpha in cfg.lossy.alphas:
         g, ucb = rcps_calibrate(cal_M, gammas, alpha, cfg.lossy.delta)
         realized = float(test_M[:, gidx[g]].mean())
         rows.append(CoverageRow(alpha, g, round(ucb, 4), round(realized, 4),
                                 realized <= alpha))
-    _write(rows)
+    _write(rows, "lossy_coverage_sampling.csv" if sampling else "lossy_coverage.csv")
     return rows
 
 
@@ -175,9 +214,9 @@ def run_lossy_gate(models, cfg: Config | None = None, **kw) -> LossyGateResult:
     return LossyGateResult(all(r.valid for r in rows), rows)
 
 
-def _write(rows):
+def _write(rows, name="lossy_coverage.csv"):
     RESULTS.mkdir(parents=True, exist_ok=True)
-    path = RESULTS / "lossy_coverage.csv"
+    path = RESULTS / name
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["target_alpha", "gamma", "cal_ucb", "realized_test_risk", "valid"])

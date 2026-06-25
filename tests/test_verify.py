@@ -50,6 +50,21 @@ def test_lossy_greedy_monotone_in_gamma():
         last = n
 
 
+def test_emission_tv_zero_at_gamma0_and_monotone():
+    # TV(p_gamma || p): 0 at gamma=0 (speculative-sampling identity), rises with gamma.
+    from spec_roofline.lossy import emission_tv
+    g = torch.Generator().manual_seed(4)
+    p = torch.softmax(torch.randn(64, generator=g), 0)
+    q = torch.softmax(torch.randn(64, generator=g), 0)
+    assert emission_tv(p, q, 0.0) < 1e-6
+    last = -1.0
+    for gamma in (0.0, 0.1, 0.3, 0.6, 0.9):
+        tv = emission_tv(p, q, gamma)
+        assert 0.0 <= tv <= 1.0
+        assert tv >= last - 1e-9
+        last = tv
+
+
 def test_lossy_sample_gamma0_matches_exact_distribution():
     # With a shared seed, gamma=0 lossy-sample must reproduce exact verify_sample.
     tl = _logits(4, seed=2)

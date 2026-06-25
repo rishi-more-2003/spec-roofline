@@ -29,10 +29,12 @@ from dataclasses import dataclass, field
 import torch
 from transformers.cache_utils import DynamicCache
 
+import torch.nn.functional as F
+
 from .config import Config
 from .model import TwoModels, forward_logits, sync_cache
 from .drafter import Drafter
-from .lossy import verify_lossy_greedy, verify_lossy_sample
+from .lossy import verify_lossy_greedy, verify_lossy_sample, emission_tv
 
 
 @dataclass
@@ -43,6 +45,7 @@ class GenResult:
     n_rounds: int
     n_accept_total: int           # drafts accepted (excludes corrections/bonus)
     accept_counts: list = field(default_factory=list)   # accepted drafts per round
+    risk_tv: float = 0.0          # mean per-step emission TV vs target (sample mode)
 
     @property
     def n_generated(self) -> int:
@@ -99,6 +102,7 @@ class SpeculativeDecoder:
 
         generated, accept_counts = [], []
         n_rounds = n_accept = n_draft_fwd = 0
+        tv_sum = tv_count = 0     # distributional risk accumulator (sample mode)
 
         while len(generated) < max_new_tokens:
             C = committed.shape[0]
@@ -124,6 +128,12 @@ class SpeculativeDecoder:
                 res = verify_lossy_greedy(draft_tokens, tgt_logits, gamma)
             else:
                 res = verify_lossy_sample(draft_tokens, draft_q, tgt_logits, gamma, gen, temp)
+                # distributional risk: per-drafted-position TV(p_gamma || p) at temp.
+                if K > 0:
+                    p_all = F.softmax(tgt_logits[:K] / temp, dim=-1)
+                    for i in range(K):
+                        tv_sum += emission_tv(p_all[i], draft_q[i], gamma)
+                    tv_count += K
 
             a = res.n_accept
             new_tokens = draft_tokens[:a].tolist() + [res.correction]
@@ -145,7 +155,8 @@ class SpeculativeDecoder:
             # 4. ROLLBACK happens lazily via sync_cache at the top of next round.
 
         return GenResult(generated[:max_new_tokens], n_rounds, n_draft_fwd,
-                         n_rounds, n_accept, accept_counts)
+                         n_rounds, n_accept, accept_counts,
+                         risk_tv=(tv_sum / tv_count if tv_count else 0.0))
 
     # -- helpers ---------------------------------------------------------------
     def _pick(self, logits_row: torch.Tensor, mode: str, gen) -> int:

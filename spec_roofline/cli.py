@@ -34,12 +34,17 @@ def _cmd_gate(args):
     for c in ll.cases:
         print(f"    prompt {c['prompt']}: greedy_match={c['greedy_match']} "
               f"acc/call={c['accepted_per_call']}")
-    print("== §7 lossy gate (RCPS coverage) ==")
+    print("== §7 lossy gate — sampling T=1.0 (the warranty's home; emission-TV risk) ==")
+    lys = run_lossy_gate(m, n_cal=args.n_cal, n_test=args.n_test, n_new=args.n_new,
+                         sampling=True, temperature=1.0)
+    print(" ", lys)
+    for r in lys.rows:
+        print(f"    α={r.target_alpha:<5} γ={r.gamma:<5} realized_TV={r.realized_test_risk:<7} valid={r.valid}")
+    print("== §7 lossy gate — greedy (token-disagreement risk; knob near-inert) ==")
     ly = run_lossy_gate(m, n_cal=args.n_cal, n_test=args.n_test, n_new=args.n_new)
     print(" ", ly)
     for r in ly.rows:
-        print(f"    α={r.target_alpha:<5} γ={r.gamma:<5} cal_ucb={r.cal_ucb:<7} "
-              f"realized={r.realized_test_risk:<7} valid={r.valid}")
+        print(f"    α={r.target_alpha:<5} γ={r.gamma:<5} realized={r.realized_test_risk:<7} valid={r.valid}")
 
 
 def _cmd_bench(args):
@@ -86,16 +91,23 @@ def _cmd_calibrate(args):
 def _cmd_headroom(args):
     from .bench import headroom, plots
     m = _models()
-    print("== headroom: where the lossy knob buys speed (diverse prompts) ==")
-    out = headroom.run(m, n_prompts=args.n_prompts, n_new=args.n_new)
-    print("-- γ frontier (acc/call, risk) --")
-    for r in out["sweep"]:
-        print(f"  {r.drafter:13s} γ={r.gamma:<4} acc/call={r.accepted_per_call:<6} "
-              f"risk={r.mean_risk:<7} risk_ucb={r.risk_ucb}")
-    print("-- RCPS-deployed γ + acc/call lift at bounded loss --")
-    for r in out["calibrated"]:
-        print(f"  {r.drafter:13s} α={r.alpha:<5} γ={r.gamma:<4} acc/call={r.accepted_per_call:<6} "
-              f"lift={r.lift_vs_lossless}× realized={r.realized_risk} valid={r.valid}")
+
+    def _show(out, label):
+        print(f"== headroom [{label}]: γ frontier ==")
+        for r in out["sweep"]:
+            print(f"  {r.regime:11s} {r.drafter:12s} γ={r.gamma:<4} "
+                  f"acc/call={r.accepted_per_call:<6} risk={r.mean_risk:<7} ucb={r.risk_ucb}")
+        print(f"-- RCPS-deployed γ + acc/call lift at bounded loss [{label}] --")
+        for r in out["calibrated"]:
+            print(f"  α={r.alpha:<5} γ={r.gamma:<4} acc/call={r.accepted_per_call:<6} "
+                  f"lift={r.lift_vs_lossless}× realized={r.realized_risk} valid={r.valid}")
+
+    # sampling is the knob's home (distribution to preserve); greedy is the contrast.
+    _show(headroom.run(m, n_prompts=args.n_prompts, n_new=args.n_new,
+                       sampling=True, temperature=args.temperature), f"sampling T={args.temperature}")
+    if args.greedy:
+        _show(headroom.run(m, n_prompts=args.n_prompts, n_new=args.n_new,
+                           drafters=("model",)), "greedy")
     plots.plot_all()
     print("(plots in results/)")
 
@@ -170,8 +182,10 @@ def main(argv=None):
     a.set_defaults(fn=_cmd_ablate)
 
     hr = sub.add_parser("headroom")
-    hr.add_argument("--n-prompts", type=int, default=60, dest="n_prompts")
-    hr.add_argument("--n-new", type=int, default=24, dest="n_new")
+    hr.add_argument("--n-prompts", type=int, default=50, dest="n_prompts")
+    hr.add_argument("--n-new", type=int, default=32, dest="n_new")
+    hr.add_argument("--temperature", type=float, default=1.0)
+    hr.add_argument("--greedy", action="store_true", help="also run the greedy contrast")
     hr.set_defaults(fn=_cmd_headroom)
 
     gen = sub.add_parser("generate")

@@ -35,6 +35,39 @@ TASK_PROMPTS = [
 ]
 
 
+# Open-ended / generative prompts: high target entropy (many near-synonym
+# continuations), the regime where the lossy sampling knob has cheap mass to give.
+OPEN_ENDED = [
+    "Write a short imaginative story about a lighthouse keeper who finds a door in the sea.",
+    "Describe an unusual floating marketplace in vivid sensory detail.",
+    "Invent a folktale explaining why the moon changes shape.",
+    "Write the opening of a mystery set on a night train.",
+    "Describe a city where it rains colors instead of water.",
+    "Tell a short story about a clockmaker who can pause time for one minute a day.",
+    "Write a vivid description of a forest that only appears at dusk.",
+    "Invent a legend about the first song ever sung.",
+    "Describe a market stall that sells bottled memories.",
+    "Write a short scene where two strangers share an umbrella in a storm.",
+    "Imagine a library where the books rewrite themselves; describe a visit.",
+    "Write a brief tale about a cartographer mapping a country that keeps moving.",
+    "Describe the last lighthouse on a drowned coastline.",
+    "Invent a bedtime story about a star that was afraid of the dark.",
+    "Write a short story about a baker whose bread grants vivid dreams.",
+    "Describe a garden that grows musical instruments instead of flowers.",
+]
+
+
+def open_ended_prompts(tokenizer, n: int, seed: int = 0):
+    """High-entropy generative prompts for the sampling regime (deterministic)."""
+    import random
+    rng = random.Random(seed)
+    pool = list(OPEN_ENDED)
+    while len(pool) < n:
+        pool += [p + f" (variation {len(pool)})" for p in OPEN_ENDED]
+    rng.shuffle(pool)
+    return [chat_ids(tokenizer, p) for p in pool[:n]]
+
+
 def chat_ids(tokenizer, prompt: str) -> torch.Tensor:
     """Apply the chat template; return input_ids [1, L]."""
     msgs = [{"role": "user", "content": prompt}]

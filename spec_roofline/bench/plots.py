@@ -118,19 +118,28 @@ def plot_acceptance():
 
 
 def plot_coverage():
-    rows = _read("lossy_coverage.csv")
-    if not rows:
+    # plot both regimes if present; sampling (the warranty's home) leads.
+    series = []
+    samp = _read("lossy_coverage_sampling.csv")
+    greedy = _read("lossy_coverage.csv")
+    if samp:
+        series.append(("sampling (held-out, emission TV)", samp, "C2", "o"))
+    if greedy:
+        series.append(("greedy (held-out, token-disagree)", greedy, "C0", "s"))
+    if not series:
         return
-    xs = [_f(r["target_alpha"]) for r in rows]
-    ys = [_f(r["realized_test_risk"]) for r in rows]
+    allx = [_f(r["target_alpha"]) for _, rows, _, _ in series for r in rows]
+    lim = max(allx) * 1.1
     plt.figure(figsize=(6, 5))
-    lim = max(xs) * 1.1
     plt.plot([0, lim], [0, lim], "--", color="gray", label="realized = α (boundary)")
-    plt.scatter(xs, ys, color="C2", zorder=3, label="realized test risk")
     plt.fill_between([0, lim], [0, 0], [lim, lim], color="C2", alpha=0.06)
+    for label, rows, c, mk in series:
+        xs = [_f(r["target_alpha"]) for r in rows]
+        ys = [_f(r["realized_test_risk"]) for r in rows]
+        plt.scatter(xs, ys, color=c, marker=mk, zorder=3, label=label)
     plt.xlabel("target α (guaranteed max loss)")
     plt.ylabel("realized loss on held-out test")
-    plt.title("RCPS coverage: realized ≤ α (the warranty holds)")
+    plt.title("RCPS coverage: realized ≤ α (the warranty holds, both regimes)")
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -158,28 +167,39 @@ def plot_crossover():
     plt.close()
 
 
-def plot_headroom():
-    rows = _read("headroom_sweep.csv")
-    if not rows:
-        return
-    # model drafter frontier: acc/call (left) + risk (right) vs gamma.
-    m = [r for r in rows if r["drafter"] == "model"]
+def _headroom_panel(ax, rows, title, risk_label):
+    m = sorted([r for r in rows if r["drafter"] == "model"], key=lambda r: _f(r["gamma"]))
     if not m:
-        return
-    m = sorted(m, key=lambda r: _f(r["gamma"]))
+        return None
     g = [_f(r["gamma"]) for r in m]
     acc = [_f(r["accepted_per_call"]) for r in m]
     risk = [_f(r["mean_risk"]) for r in m]
-    fig, ax1 = plt.subplots(figsize=(7, 4.5))
-    ax1.plot(g, acc, "o-", color="C0", label="acc/call (speed)")
-    ax1.set_xlabel("leniency γ")
-    ax1.set_ylabel("accepted tokens / target call", color="C0")
-    ax1.tick_params(axis="y", labelcolor="C0")
-    ax2 = ax1.twinx()
-    ax2.plot(g, risk, "s--", color="C3", label="risk (quality loss)")
-    ax2.set_ylabel("token-disagreement risk vs target", color="C3")
+    ax.plot(g, acc, "o-", color="C0", label="acc/call")
+    ax.set_xlabel("leniency γ")
+    ax.set_ylabel("accepted tokens / target call", color="C0")
+    ax.tick_params(axis="y", labelcolor="C0")
+    ax2 = ax.twinx()
+    ax2.plot(g, risk, "s--", color="C3", label="risk")
+    ax2.set_ylabel(risk_label, color="C3")
     ax2.tick_params(axis="y", labelcolor="C3")
-    ax1.set_title("The lossy frontier: speed rises, but the risk rises faster")
+    ax.set_title(title)
+    return ax2
+
+
+def plot_headroom():
+    greedy = _read("headroom_greedy_sweep.csv")
+    samp = _read("headroom_sampling_sweep.csv")
+    panels = [(samp, "Sampling (T): the knob's home", "emission TV vs target"),
+              (greedy, "Greedy: the knob barely bites", "token-disagreement vs target")]
+    panels = [(r, t, rl) for r, t, rl in panels if r]
+    if not panels:
+        return
+    fig, axes = plt.subplots(1, len(panels), figsize=(6.2 * len(panels), 4.5))
+    if len(panels) == 1:
+        axes = [axes]
+    for ax, (rows, title, rl) in zip(axes, panels):
+        _headroom_panel(ax, rows, title, rl)
+    fig.suptitle("Where the lossy knob buys speed: sampling vs greedy")
     fig.tight_layout()
     fig.savefig(RESULTS / "headroom.png", dpi=130)
     plt.close(fig)

@@ -1,0 +1,6 @@
+regime,drafter,alpha,gamma,accepted_per_call,lift_vs_lossless,realized_risk,valid
+sample@T1.0,model,0.02,0.0,2.886,1.0,0.0,True
+sample@T1.0,model,0.05,0.0,2.886,1.0,0.0,True
+sample@T1.0,model,0.1,0.0,2.886,1.0,0.0,True
+sample@T1.0,model,0.2,0.1,2.943,1.02,0.0316,True
+sample@T1.0,model,0.3,0.5,3.397,1.177,0.137,True

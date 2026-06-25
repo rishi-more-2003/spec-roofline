@@ -33,6 +33,34 @@ from .verify import VerifyResult, verify_greedy, verify_sample, _residual_sample
 
 
 @torch.no_grad()
+def emission_tv(p: torch.Tensor, q: torch.Tensor, gamma: float) -> float:
+    """TV( p_gamma || p ): the distributional risk of relaxed rejection sampling.
+
+    Under sampling, the right risk is *not* token-match against one noisy resample
+    (the target disagrees with its own draw); it is how far the relaxed acceptance
+    moves the *emission distribution* from the target's true next-token distribution.
+
+    One relaxed rejection-sampling step with draft q, target p, leniency gamma emits
+    token t with marginal probability
+        p_gamma(t) = q(t)*a(t) + (rejected mass) * r_gamma(t),
+        a(t)       = min(1, p(t) / ((1-gamma) q(t)))           # accept prob if proposed
+        r_gamma    = norm((p - (1-gamma) q)_+)                  # residual on reject
+    At gamma=0 this collapses to p_gamma == p (the speculative-sampling identity),
+    so TV == 0; it grows monotonically with gamma. Returns 0.5*||p_gamma - p||_1
+    in [0,1] — bounded, low-variance, and exactly "distance from the distribution
+    we promised to preserve". RCPS bounds its expectation (conformal.py)."""
+    scale = max(1e-9, 1.0 - gamma)
+    qc = q.clamp_min(1e-12)
+    a = torch.clamp(p / (scale * qc), max=1.0)          # per-token accept prob
+    rej_mass = float((q * (1.0 - a)).sum())             # P(proposal rejected)
+    resid = torch.clamp(p - scale * q, min=0.0)
+    R = float(resid.sum())
+    r = resid / R if R > 0 else p
+    p_emit = q * a + rej_mass * r
+    return float(0.5 * (p_emit - p).abs().sum())
+
+
+@torch.no_grad()
 def verify_lossy_greedy(draft_tokens: torch.Tensor, target_logits: torch.Tensor,
                         gamma: float) -> VerifyResult:
     """Top-mass / nucleus-gated greedy leniency. gamma=0 -> exact greedy verify.

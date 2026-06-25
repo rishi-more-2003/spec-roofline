@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spec-roofline"
+version = "0.1.0"
+description = "Speculative decoding for batch-1 long-context decode, with roofline-style step-cost accounting and a conformally-bounded lossy-acceptance knob."
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.45",
+    "datasets>=2.20",
+    "matplotlib>=3.7",
+    "numpy>=1.24",
+    "huggingface_hub>=0.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+spec-roofline = "spec_roofline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["spec_roofline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

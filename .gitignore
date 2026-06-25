@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+conformal-serve/
+kv-roofline/
+spec-roofline-taskspec.md

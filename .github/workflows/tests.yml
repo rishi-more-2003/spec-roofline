@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpu-tests:
+    name: CPU verify + RCPS invariants (CUDA cases auto-skip)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install CPU deps
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only torch — CI runners have no GPU; the engine/rollback tests
+          # carry a CUDA skipif and the pure tests import torch only.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy pytest
+
+      - name: Run tests
+        run: |
+          # test_verify.py (exact-verify + gamma=0 reduction) and test_conformal.py
+          # (RCPS / empirical-Bernstein invariants) run in full — pure tensor math,
+          # no model load. test_engine.py collects but its CUDA cases auto-skip
+          # without a GPU (-rs reports the skips).
+          pytest tests/ -q -rs

@@ -40,8 +40,9 @@ def _log(msg: str):
     print(msg, file=sys.stderr, flush=True)
 
 from .config import Config
-from .engine import SpeculativeDecoder
-from .data import calibration_prompts
+
+# engine/data are imported lazily inside run_coverage so the pure calibrator math
+# (_eb_ucb, rcps_calibrate) imports with torch only — keeps CI GPU-/transformers-free.
 
 RESULTS = Path(__file__).resolve().parent.parent / "results"
 
@@ -129,6 +130,8 @@ def run_coverage(models, cfg: Config | None = None, n_cal: int = 20, n_test: int
     For each target alpha: calibrate gamma on the cal split, then report the
     realised mean risk on the held-out test split. valid <=> realised <= alpha.
     """
+    from .engine import SpeculativeDecoder
+    from .data import calibration_prompts
     cfg = cfg or Config()
     dec = SpeculativeDecoder(models, cfg)
     gammas = list(cfg.lossy.gamma_grid)

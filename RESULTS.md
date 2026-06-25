@@ -9,9 +9,19 @@ Hardware: RTX 4070 Laptop, 8 GB, sm_89. Target `Qwen2.5-1.5B-Instruct`, draft
 - **Both §7 gates pass.** Lossless-spec reproduces the target greedy output
   **token-for-token** (KV rollback is exact); the lossy knob's realised quality
   loss stays **≤ α** on held-out data for every α (RCPS coverage).
-- **The roofline win is real and large:** lossless-spec emits **4.6 tokens per
-  target forward** — it produces 32 tokens in **7** expensive target steps instead
-  of **33**. That is the "number of expensive steps" thesis of the trilogy.
+- **The step-count lever is real and large:** lossless-spec emits **4.6 tokens per
+  target forward** — 32 tokens in **7** expensive target steps instead of **33**
+  (**4.7× fewer**). This is implementation-independent. *Wall-clock is net-negative
+  (0.27–0.85×) at 1.5B:0.5B on 8 GB — analysed below, not hidden.*
+- **The lossy knob moves the needle, and we draw its scope.** On the diverse
+  prompts it is calibrated on, leniency lifts accepted-per-call along a real,
+  monotone frontier — **3.37 → 4.48 (+33%)** as γ→0.9 — but the frontier is
+  *steep* (risk climbs 0 → 0.65). Under the RCPS warranty the deployable gain is
+  therefore **small for this strong-draft pair: +1.1% at α=0.3** (γ=0.3, realised
+  loss 0.067 ≤ 0.3), nothing at α≤0.2. The honest finding is the **boundary**: a
+  0.5B draft already accepts 84–100%, so there is almost nothing for leniency to
+  recover at bounded loss. The knob is a lever for *weak-draft / high-entropy*
+  regimes; this pair has no slack to give. See [Headroom](#where-the-lossy-knob-buys-speed-headroom).
 - **The honest caveat (wall-clock):** in this pure-Python reference harness the
   step-count win does **not** convert to wall-clock tok/s. With a 1.5B:0.5B
   target:draft ratio (~3×), one target forward does not dominate the 4 draft
@@ -78,6 +88,50 @@ Read this two ways:
   16k OOMs (a *reported* data point, not a crash — taskspec §2). Even with free
   memory, the small target:draft ratio means draft + Python overhead eats the win.
 
+## Where the lossy knob buys speed (headroom)
+
+`results/headroom_sweep.csv` + `headroom_calibrated.csv`
+(`python -m spec_roofline.cli headroom`). The lossy knob is the contribution, so
+this measures it where it is *calibrated* — the diverse prompt distribution, model
+drafter — not the repetitive throughput prompts (where the target is so confident
+the knob never bites and lossy trivially ties lossless).
+
+**The speed↔fidelity frontier (model drafter, 60 diverse prompts):**
+
+| γ | acc/call | Δ vs lossless | mean risk |
+|---:|---:|---:|---:|
+| 0.0 | 3.37 | — | 0.000 |
+| 0.2 | 3.36 | −0.2% | 0.013 |
+| 0.3 | 3.41 | **+1.1%** | 0.067 |
+| 0.4 | 3.46 | +2.7% | 0.155 |
+| 0.5 | 3.64 | +8.1% | 0.233 |
+| 0.7 | 3.86 | +14% | 0.462 |
+| 0.9 | 4.48 | **+33%** | 0.649 |
+
+**The quantity moves** — leniency lifts accepted-per-target-call up to +33%. But the
+frontier is *steep*: risk (token-disagreement vs the lossless/target path) climbs to
+0.65 by γ=0.9. Whether that speed is worth taking is exactly what the warranty
+decides.
+
+**What the RCPS warranty actually deploys (the receipt):**
+
+| target α | calibrated γ | acc/call | lift vs lossless | realised loss | valid |
+|---:|---:|---:|---:|---:|:--:|
+| 0.02 / 0.05 / 0.10 | 0.0 | 3.37 | 1.00× | 0.000 | ✓ |
+| 0.20 | 0.2 | 3.36 | 1.00× | 0.013 | ✓ |
+| 0.30 | **0.3** | 3.41 | **+1.1%** | 0.067 | ✓ |
+
+**The honest result.** The deployable, warranty-backed gain is **small for this
+pair — +1.1% acc/call at α=0.3, nothing tighter.** This is not a knob failure; it
+is the *boundary*, measured: a 0.5B draft already accepts 84–100%, and the few
+exact-verify rejections are **far-misses** (a rejected token is usually deep in the
+target's tail, not a near-miss), so admitting them costs disproportionate quality.
+Leniency pays where the draft is *weak* (many recoverable rejections) or the target
+is *high-entropy* (cheap near-misses) — a well-aligned 1.5B/0.5B greedy pair is
+neither. The knob is built, gated, and its useful regime is drawn rather than
+oversold. (Contrast: the prompt-lookup drafter on these non-repetitive prompts
+barely proposes — acc/call 1.02, flat across γ — the other end of "no headroom".)
+
 ## Acceptance rate vs K / context / drafter
 
 `results/acceptance.csv`. acceptance_rate = accepted drafts / (rounds·K).
@@ -109,6 +163,11 @@ agreement vs the target greedy reference. wikitext-2 ppl is the measuring stick.
 
 wikitext-2 ppl (target == lossless by construction): **7.321**.
 
+> Note: lossy γ=0.3 shows token-agreement 1.000 *here* because these short factual
+> prompts are high-confidence — γ=0.3 reduces to argmax (the knob is inert). Its
+> measurable, bounded drift appears on the diverse calibration distribution, where
+> the warranty governs it — see [Headroom](#where-the-lossy-knob-buys-speed-headroom).
+
 Lossless matches the target exactly (agreement 1.000). At γ=0.3 the lossy path is
 *also* indistinguishable on these short, high-confidence prompts — the draft sits
 in the target's top-1 nucleus, so the lenient accept reduces to argmax. Drift only
@@ -129,10 +188,12 @@ what the RCPS bound governs.
 | 0.7 | 4.80 | 14.8 | 0.104 |
 | 0.9 | 4.80 | 14.5 | 0.104 |
 
-Monotone: risk is 0 at γ=0 and non-decreasing; acceptance rises only once γ is large
-enough to admit off-top-1 drafts. With this strong draft the leniency headroom is
-small — an honest finding: lossy helps most when the draft is *mediocre* (more
-near-misses to forgive), not when it is already excellent.
+Monotone: risk is 0 at γ=0 and non-decreasing. This sweep is on the *repetitive*
+context (build_context, ctx=2048) where the target is highly confident, so the knob
+barely bites until γ≥0.7 — the clearest visual of "no headroom". The properly
+calibrated measurement, on the diverse distribution, is in
+[Headroom](#where-the-lossy-knob-buys-speed-headroom); the conclusion is the same
+and quantified: leniency helps a *weak* draft, not an already-excellent one.
 
 ### K (draft length) sweep, ctx=2048 — `results/ablation_k.csv`
 
@@ -162,6 +223,7 @@ Wall-clock speedup is < 1 everywhere and degrades with context (memory pressure 
 ## Plots (`results/`)
 
 - `throughput.png` — tok/s vs context, three regimes (lead; read with the caveat).
+- `headroom.png` — acc/call vs γ with the risk axis: where the knob buys speed.
 - `tok_s_vs_loss.png` — tok/s vs guaranteed max quality loss α (the lossy knob).
 - `acceptance.png` — acceptance rate vs K, small-model vs prompt-lookup.
 - `coverage.png` — RCPS: realised loss ≤ α (the warranty holds).
@@ -169,17 +231,26 @@ Wall-clock speedup is < 1 everywhere and degrades with context (memory pressure 
 
 ## Honest reading / what this is and isn't
 
-The **contribution stands**: an exact distribution-preserving verify (gated token-
-for-token), a single monotone leniency knob, and a **distribution-free RCPS warranty**
-that the relaxed knob's quality loss stays ≤ α (gated on held-out). The roofline
-*step-count* lever — 4.7× fewer target forwards at identical output — is the clean,
-implementation-independent result.
+This is a **rigorously-delineated negative-leaning result**, and that is the point.
+Three things are built and gated: an exact distribution-preserving verify (gated
+token-for-token), a single monotone leniency knob, and a **distribution-free RCPS
+warranty** that the relaxed knob's quality loss stays ≤ α (gated on held-out).
 
-What this **isn't**: a wall-clock win. A 1.5B target on 8 GB with a pure-Python
-decode loop is the wrong regime for speculative *latency* — the target is too small
-relative to the draft + overhead, and two KV caches exhaust 8 GB at long context.
-That is consistent with the taskspec's non-goals (no production server, not beating
-vLLM in absolute tok/s) and is itself the trilogy's recurring lesson: the 8 GB
-memory wall decides where a lever pays off. The knob's serving home — where the
-step-count win meets a real fused backend and a larger target — is `conformal-serve`
-(taskspec §10).
+What pays and what does not, measured:
+
+- **Step-count: pays.** 4.7× fewer target forwards at identical output —
+  implementation-independent, the clean win.
+- **Wall-clock: does not pay here.** 0.27–0.85× — a 1.5B target is too small
+  relative to a 0.5B draft + Python overhead, and two KV caches exhaust 8 GB at
+  long context. (Non-goals, taskspec §1; the trilogy's lesson — the 8 GB memory
+  wall decides where a lever pays off.)
+- **Lossy leniency: pays a little, and we say how little.** +1.1% acc/call at the
+  loosest certified budget (α=0.3); the frontier reaches +33% but at a quality cost
+  no sane α accepts. The boundary is the finding: a strong, well-aligned draft
+  leaves almost nothing for leniency to recover at bounded loss.
+
+Framed as judgment, not as a win: the value here is showing *where* two speculative
+levers pay off and proving *why* they don't where they don't — and a knob whose
+warranty is honoured even when the headroom it governs is small. The regime where
+all of this converts to latency — a larger target, a fused backend, the α budget
+shared across levers — is `conformal-serve` (taskspec §10).

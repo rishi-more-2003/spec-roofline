@@ -29,7 +29,7 @@
 
 ## TL;DR
 
-> A small **draft** model (Qwen2.5-0.5B) proposes K tokens; the **target** (Qwen2.5-1.5B) verifies them in **one** batched forward. The standard rejection-sampling verify is *provably distribution-preserving* — and we gate it: with a fixed seed, lossless-spec reproduces the target's greedy output **token-for-token**, which only holds if KV rollback after each rejection is exact. The contribution is the **lossy knob**: one monotone leniency parameter `γ` (top-mass / nucleus-gated acceptance) that accepts more drafts for fewer target calls, with a **distribution-free RCPS warranty** that the realized quality loss stays **≤ α** on held-out data. The roofline lever lands cleanly — lossless/lossy spend **7 target forwards instead of 33** for 32 tokens (**4.6 tokens per expensive step**) at identical output. Third in a trilogy — [decode-roofline](https://github.com/rishi-more-2003/decode-roofline) (weight bytes) → [kv-roofline](https://github.com/rishi-more-2003/kv-roofline) (KV bytes) → **spec-roofline (step count)** — same discipline throughout: *no speedup number ships unless its path proves what it claims.*
+> A small **draft** model (Qwen2.5-0.5B) proposes K tokens; the **target** (Qwen2.5-1.5B) verifies them in **one** batched forward. The standard rejection-sampling verify is *provably distribution-preserving* — and we gate it: with a fixed seed, lossless-spec reproduces the target's greedy output **token-for-token**, which only holds if KV rollback after each rejection is exact. The step-count lever lands cleanly: **7 target forwards instead of 33** for 32 tokens — **4.7× fewer expensive steps** (*step-count; wall-clock is net-negative at 1.5B:0.5B on 8 GB — analysed, not hidden*). The contribution is the **lossy knob**: one monotone leniency parameter `γ` carrying a **distribution-free RCPS warranty** that realized quality loss stays **≤ α** on held-out data. Its honest scope is the result: leniency traces a real speed↔fidelity frontier (acc/call **+33% by γ=0.9**) but the trade is *steep*, so under the warranty the deployable gain is **small for this strong-draft pair (+1.1% at α=0.3)** — a 0.5B draft already accepts 84–100%, leaving little to recover. Third in a trilogy — [decode-roofline](https://github.com/rishi-more-2003/decode-roofline) (weight bytes) → [kv-roofline](https://github.com/rishi-more-2003/kv-roofline) (KV bytes) → **spec-roofline (step count)** — same discipline throughout: *no speedup number ships unless its path proves what it claims, and a lever that doesn't pay is reported as such.*
 
 ---
 
@@ -68,19 +68,23 @@ The build follows the taskspec phases, each independently testable:
 
 ### Headline numbers
 
-| | no-spec | lossless-spec | lossy-spec (γ=0.3) |
+| | no-spec | lossless-spec | lossy-spec (calibrated) |
 |---|---:|---:|---:|
-| target forwards (32 tok) | **33** | **7** | **7** |
-| tokens / target forward | 0.97 | **4.57** | 4.57 |
-| output vs target (greedy) | — | **token-for-token** | bounded drift ≤ α |
+| target forwards (32 tok) | **33** | **7** | 7 |
+| tokens / target forward | 0.97 | **4.57** | 4.57 → up to +33% (γ-dependent) |
+| output vs target (greedy) | — | **token-for-token** | bounded drift ≤ α (RCPS) |
 | best tokens/call (K=6, 4k) | — | **6.0** | 6.0 |
 
 **Both §7 gates pass.** Lossless reproduces the target greedy output exactly; the
 lossy knob's realized loss stays ≤ α on held-out data for every α budget.
 
-> The roofline *step-count* win is **4.7× fewer expensive target forwards** at
-> identical output, and it is context-independent. The wall-clock story is more
-> honest — see [The Honest Caveat](#the-honest-caveat).
+> **Read the 4.7× precisely.** It is **4.7× fewer expensive target forwards**
+> (step-count; context-independent) at identical output — **not** a wall-clock
+> speedup. On this hardware wall-clock is **net-negative (0.27–0.85×)**; see
+> [The Honest Caveat](#the-honest-caveat). The lossy knob's bounded-loss gain is
+> **small here by design of the regime** (+1.1% acc/call at α=0.3) — the
+> [headroom analysis](#where-the-lossy-knob-buys-speed) shows why and where it
+> would pay.
 
 ---
 
@@ -135,6 +139,13 @@ Full tables in **[RESULTS.md](RESULTS.md)**; plots and CSVs in `results/`.
 | 4096 | lossless / lossy | 2.5 | **4.57** | **7** | 7.7 GB |
 | 16384 | all | — | — | — | **OOM** (reported, not crashed) |
 
+### Where the lossy knob pays — `results/headroom.png`
+
+The contribution's scope, measured: the knob lifts acc/call along a real frontier
+(3.37 → 4.48, **+33%** as γ→0.9) but the trade is steep, so the **warranty-deployed**
+gain is **+1.1% at α=0.3** for this strong-draft pair. Full table + the "why" in
+[The Knob → Where the lossy knob buys speed](#where-the-lossy-knob-buys-speed).
+
 ### Acceptance rate vs K / drafter — `results/acceptance.png`
 
 | drafter | ctx | K=2 | K=4 | K=6 |
@@ -177,8 +188,32 @@ One scalar **leniency** parameter `γ`, a **top-mass / nucleus-gated** accept
 the token-disagreement rate vs the *lossless-spec* continuation (which Gate 1
 certifies equals the target). It is structurally 0 at `γ=0` and monotone in `γ`.
 RCPS picks the **largest** `γ` whose empirical-Bernstein UCB on `E[risk] ≤ α` —
-the most aggressive dial that still carries the warranty. See
-`results/tok_s_vs_loss.png`: throughput vs guaranteed max quality loss `α`.
+the most aggressive dial that still carries the warranty.
+
+### Where the lossy knob buys speed
+
+The knob is the contribution, so the load-bearing question is *where does it beat
+lossless?* Measured on the diverse prompts it is calibrated on (`results/headroom.png`,
+`headroom_sweep.csv`; `python -m spec_roofline.cli headroom`), the model drafter:
+
+| γ | acc/call | Δ vs lossless | risk |
+|---:|---:|---:|---:|
+| 0.0 | 3.37 | — | 0.000 |
+| 0.3 | 3.41 | **+1.1%** | 0.067 |
+| 0.5 | 3.64 | +8.1% | 0.233 |
+| 0.9 | 4.48 | **+33%** | 0.649 |
+
+The quantity **moves** — leniency genuinely buys accepted-tokens-per-call — but the
+frontier is *steep*, so under the RCPS warranty the **deployable** gain is small for
+this pair: **+1.1% acc/call at α=0.3** (γ=0.3, realized loss 0.067 ≤ 0.3), nothing
+tighter. That is the honest finding, and it is a *boundary*, not a bug:
+
+> A 0.5B draft already accepts **84–100%** of tokens, and the few exact-verify
+> rejections are **far-misses** (deep in the target's tail), so admitting them costs
+> disproportionate quality. **Leniency pays where the draft is weak (many recoverable
+> rejections) or the target is high-entropy (cheap near-misses) — a well-aligned
+> 1.5B/0.5B greedy pair is neither.** The knob is built, gated, and its useful regime
+> is *drawn* rather than oversold.
 
 ---
 
@@ -290,8 +325,8 @@ spec_roofline/
   engine.py        # SpeculativeDecoder: draft→verify→accept loop + KV rollback
   gate.py          # §7 lossless gate (token-for-token + KL noise floor)
   data.py          # task suite, gate prompts, passkey, wikitext slice
-  bench/           # throughput / acceptance / quality / ablations / plots
-  cli.py           # generate / bench / eval / gate / calibrate / ablate / all
+  bench/           # throughput / acceptance / quality / ablations / headroom / plots
+  cli.py           # generate / bench / eval / gate / calibrate / ablate / headroom / all
 tests/             # verify & RCPS invariants (CPU) + engine rollback (GPU)
 scripts/run_benches.py
 ```

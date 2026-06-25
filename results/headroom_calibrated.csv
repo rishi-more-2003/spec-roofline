@@ -1,0 +1,6 @@
+drafter,alpha,gamma,accepted_per_call,lift_vs_lossless,realized_risk,valid
+model,0.02,0.0,3.37,1.0,0.0,True
+model,0.05,0.0,3.37,1.0,0.0,True
+model,0.1,0.0,3.37,1.0,0.0,True
+model,0.2,0.2,3.364,0.998,0.0125,True
+model,0.3,0.3,3.406,1.011,0.0667,True

@@ -83,6 +83,23 @@ def _cmd_calibrate(args):
     print("(plots in results/)")
 
 
+def _cmd_headroom(args):
+    from .bench import headroom, plots
+    m = _models()
+    print("== headroom: where the lossy knob buys speed (diverse prompts) ==")
+    out = headroom.run(m, n_prompts=args.n_prompts, n_new=args.n_new)
+    print("-- γ frontier (acc/call, risk) --")
+    for r in out["sweep"]:
+        print(f"  {r.drafter:13s} γ={r.gamma:<4} acc/call={r.accepted_per_call:<6} "
+              f"risk={r.mean_risk:<7} risk_ucb={r.risk_ucb}")
+    print("-- RCPS-deployed γ + acc/call lift at bounded loss --")
+    for r in out["calibrated"]:
+        print(f"  {r.drafter:13s} α={r.alpha:<5} γ={r.gamma:<4} acc/call={r.accepted_per_call:<6} "
+              f"lift={r.lift_vs_lossless}× realized={r.realized_risk} valid={r.valid}")
+    plots.plot_all()
+    print("(plots in results/)")
+
+
 def _cmd_ablate(args):
     from .bench import ablations, plots
     m = _models()
@@ -151,6 +168,11 @@ def main(argv=None):
 
     a = sub.add_parser("ablate")
     a.set_defaults(fn=_cmd_ablate)
+
+    hr = sub.add_parser("headroom")
+    hr.add_argument("--n-prompts", type=int, default=60, dest="n_prompts")
+    hr.add_argument("--n-new", type=int, default=24, dest="n_new")
+    hr.set_defaults(fn=_cmd_headroom)
 
     gen = sub.add_parser("generate")
     gen.add_argument("--prompt", required=True)

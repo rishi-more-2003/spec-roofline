@@ -158,8 +158,36 @@ def plot_crossover():
     plt.close()
 
 
+def plot_headroom():
+    rows = _read("headroom_sweep.csv")
+    if not rows:
+        return
+    # model drafter frontier: acc/call (left) + risk (right) vs gamma.
+    m = [r for r in rows if r["drafter"] == "model"]
+    if not m:
+        return
+    m = sorted(m, key=lambda r: _f(r["gamma"]))
+    g = [_f(r["gamma"]) for r in m]
+    acc = [_f(r["accepted_per_call"]) for r in m]
+    risk = [_f(r["mean_risk"]) for r in m]
+    fig, ax1 = plt.subplots(figsize=(7, 4.5))
+    ax1.plot(g, acc, "o-", color="C0", label="acc/call (speed)")
+    ax1.set_xlabel("leniency γ")
+    ax1.set_ylabel("accepted tokens / target call", color="C0")
+    ax1.tick_params(axis="y", labelcolor="C0")
+    ax2 = ax1.twinx()
+    ax2.plot(g, risk, "s--", color="C3", label="risk (quality loss)")
+    ax2.set_ylabel("token-disagreement risk vs target", color="C3")
+    ax2.tick_params(axis="y", labelcolor="C3")
+    ax1.set_title("The lossy frontier: speed rises, but the risk rises faster")
+    fig.tight_layout()
+    fig.savefig(RESULTS / "headroom.png", dpi=130)
+    plt.close(fig)
+
+
 def plot_all():
     plot_throughput()
+    plot_headroom()
     plot_tok_s_vs_loss()
     plot_acceptance()
     plot_coverage()

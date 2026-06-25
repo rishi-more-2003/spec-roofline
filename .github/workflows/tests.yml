@@ -31,6 +31,11 @@ jobs:
           pip install numpy pytest
 
       - name: Run tests
+        # PYTHONPATH makes `spec_roofline` importable without `pip install -e .`
+        # (and without depending on pytest's pythonpath ini being picked up on the
+        # runner — that silently fails to import the package in some setups).
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           # test_verify.py (exact-verify + gamma=0 reduction) and test_conformal.py
           # (RCPS / empirical-Bernstein invariants) run in full — pure tensor math,

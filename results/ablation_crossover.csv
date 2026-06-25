@@ -1,0 +1,4 @@
+context,nospec_tok_s,lossless_tok_s,lossy_tok_s,lossless_speedup,lossy_speedup
+256,22.01,18.24,18.71,0.83,0.85
+1024,22.11,17.58,17.12,0.8,0.77
+4096,12.57,3.4,3.39,0.27,0.27

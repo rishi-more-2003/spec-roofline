@@ -1,0 +1,10 @@
+context,regime,gamma,tok_s,accepted_per_call,target_forwards,n_generated,peak_vram_mb,oom
+1024,no_spec,0.0,22.07,0.97,33,32,4837.8,False
+1024,lossless,0.0,18.83,4.571,7,32,4849.6,False
+1024,lossy,0.3,19.12,4.571,7,32,4849.6,False
+4096,no_spec,0.0,10.11,0.97,33,32,7593.1,False
+4096,lossless,0.0,2.51,4.571,7,32,7661.6,False
+4096,lossy,0.3,2.45,4.571,7,32,7661.6,False
+16384,no_spec,0.0,0,0,0,0,17923.4,True
+16384,lossless,0.0,0,0,0,0,17923.4,True
+16384,lossy,0.3,0,0,0,0,17923.4,True

@@ -96,10 +96,13 @@ def crossover(models, cfg, contexts=(256, 1024, 4096, 16384), n_new=64, lossy_ga
     return rows
 
 
-def run_all(models, cfg: Config | None = None) -> dict:
+def run_all(models, cfg: Config | None = None, *, gamma_ctx=4096, gamma_new=64,
+            k_ctx=4096, ks=(1, 2, 4, 6, 8), k_new=96,
+            crossover_contexts=(256, 1024, 4096, 16384), crossover_new=64) -> dict:
     cfg = cfg or Config()
-    out = {"gamma": gamma_sweep(models, cfg), "k": k_sweep(models, cfg),
-           "crossover": crossover(models, cfg)}
+    out = {"gamma": gamma_sweep(models, cfg, ctx=gamma_ctx, n_new=gamma_new),
+           "k": k_sweep(models, cfg, ctx=k_ctx, ks=ks, n_new=k_new),
+           "crossover": crossover(models, cfg, contexts=crossover_contexts, n_new=crossover_new)}
     _write("ablation_gamma.csv", out["gamma"])
     _write("ablation_k.csv", out["k"])
     _write("ablation_crossover.csv", out["crossover"])

@@ -1,0 +1,4 @@
+regime,gamma,passkey_acc,task_acc,token_agreement
+no_spec,0.0,1.0,0.833,1.0
+lossless,0.0,1.0,0.833,1.0
+lossy,0.3,1.0,0.833,1.0

@@ -1,0 +1,55 @@
+# spec-roofline bench summary
+
+== throughput (tok/s vs context: no-spec / lossless / lossy γ=0.3) ==
+  ctx=  1024 no_spec   γ=0.0:     22.1 tok/s  acc/call=0.97  fwds=33  vram=4838MB
+  ctx=  1024 lossless  γ=0.0:     18.8 tok/s  acc/call=4.57  fwds=7  vram=4850MB
+  ctx=  1024 lossy     γ=0.3:     19.1 tok/s  acc/call=4.57  fwds=7  vram=4850MB
+  ctx=  4096 no_spec   γ=0.0:     10.1 tok/s  acc/call=0.97  fwds=33  vram=7593MB
+  ctx=  4096 lossless  γ=0.0:      2.5 tok/s  acc/call=4.57  fwds=7  vram=7662MB
+  ctx=  4096 lossy     γ=0.3:      2.5 tok/s  acc/call=4.57  fwds=7  vram=7662MB
+  ctx= 16384 no_spec   γ=0.0: OOM
+  ctx= 16384 lossless  γ=0.0: OOM
+  ctx= 16384 lossy     γ=0.3: OOM
+
+== acceptance (rate vs K / context / drafter) ==
+  model         ctx=  1024 K=2: accept_rate=0.833  acc/call=2.67
+  model         ctx=  1024 K=4: accept_rate=0.750  acc/call=4.00
+  model         ctx=  1024 K=6: accept_rate=0.633  acc/call=4.80
+  model         ctx=  4096 K=2: accept_rate=1.000  acc/call=3.00
+  model         ctx=  4096 K=4: accept_rate=0.975  acc/call=4.80
+  model         ctx=  4096 K=6: accept_rate=0.938  acc/call=6.00
+  prompt_lookup ctx=  1024 K=2: accept_rate=0.500  acc/call=2.00
+  prompt_lookup ctx=  1024 K=4: accept_rate=0.350  acc/call=2.40
+  prompt_lookup ctx=  1024 K=6: accept_rate=0.304  acc/call=2.82
+  prompt_lookup ctx=  4096 K=2: accept_rate=0.861  acc/call=2.67
+  prompt_lookup ctx=  4096 K=4: accept_rate=0.833  acc/call=4.00
+  prompt_lookup ctx=  4096 K=6: accept_rate=0.778  acc/call=5.33
+
+== quality (no-spec / lossless / lossy) ==
+  no_spec   γ=0.0: passkey=1.00  task_acc=0.83  token_agreement_vs_target=1.000
+  lossless  γ=0.0: passkey=1.00  task_acc=0.83  token_agreement_vs_target=1.000
+  lossy     γ=0.3: passkey=1.00  task_acc=0.83  token_agreement_vs_target=1.000
+  wikitext-2 ppl (target == lossless): 7.321
+
+== ablations ==
+  -- γ sweep (speed<->fidelity) --
+    γ=0.0   acc/call=4.364  tok/s=13.2     risk=0.0
+    γ=0.05  acc/call=4.364  tok/s=14.33    risk=0.0
+    γ=0.1   acc/call=4.364  tok/s=14.51    risk=0.0
+    γ=0.2   acc/call=4.364  tok/s=14.52    risk=0.0
+    γ=0.3   acc/call=4.364  tok/s=14.55    risk=0.0
+    γ=0.4   acc/call=4.364  tok/s=14.81    risk=0.083
+    γ=0.5   acc/call=4.364  tok/s=14.69    risk=0.083
+    γ=0.7   acc/call=4.8    tok/s=14.82    risk=0.104
+    γ=0.9   acc/call=4.8    tok/s=14.49    risk=0.104
+  -- K sweep --
+    K=1 acc/call=1.92 accept_rate=0.92
+    K=2 acc/call=2.824 accept_rate=0.912
+    K=4 acc/call=4.364 accept_rate=0.841
+    K=6 acc/call=5.333 accept_rate=0.722
+  -- lossy-vs-context crossover (the caveat) --
+    ctx=   256: lossless 0.83x  lossy 0.85x
+    ctx=  1024: lossless 0.8x  lossy 0.77x
+    ctx=  4096: lossless 0.27x  lossy 0.27x
+
+(plots + CSVs written to results/)

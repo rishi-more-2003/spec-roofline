@@ -74,6 +74,7 @@ def wikitext_slice(tokenizer, n_tokens: int = 4096):
     from datasets import load_dataset
     ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
     text = "\n\n".join(t for t in ds["text"] if t.strip())
+    text = text[:n_tokens * 8]   # cap chars before tokenizing (avoids a length warning)
     ids = tokenizer(text, return_tensors="pt").input_ids[:, :n_tokens]
     return ids
 

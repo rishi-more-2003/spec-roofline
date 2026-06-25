@@ -1,0 +1,13 @@
+drafter,context,k,acceptance_rate,accepted_per_call,n_generated
+model,1024,2,0.833,2.667,48
+model,1024,4,0.75,4.0,48
+model,1024,6,0.633,4.8,48
+model,4096,2,1.0,3.0,48
+model,4096,4,0.975,4.8,48
+model,4096,6,0.938,6.0,48
+prompt_lookup,1024,2,0.5,2.0,48
+prompt_lookup,1024,4,0.35,2.4,48
+prompt_lookup,1024,6,0.304,2.824,48
+prompt_lookup,4096,2,0.861,2.667,48
+prompt_lookup,4096,4,0.833,4.0,48
+prompt_lookup,4096,6,0.778,5.333,48

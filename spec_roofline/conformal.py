@@ -28,10 +28,16 @@ from __future__ import annotations
 
 import csv
 import math
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
+
+
+def _log(msg: str):
+    print(msg, file=sys.stderr, flush=True)
 
 from .config import Config
 from .engine import SpeculativeDecoder
@@ -76,12 +82,20 @@ def risk(dec: SpeculativeDecoder, ids: torch.Tensor, ref: list, gamma: float,
     return max(0.0, min(1.0, mism / max(len(out), len(ref))))
 
 
-def _risk_matrix(dec, prompts, refs, gammas, n_new):
-    """[n_prompts, n_gammas] risk tensor."""
-    M = torch.zeros(len(prompts), len(gammas))
+def _risk_matrix(dec, prompts, refs, gammas, n_new, label=""):
+    """[n_prompts, n_gammas] risk tensor, with live progress."""
+    n = len(prompts)
+    M = torch.zeros(n, len(gammas))
+    t0 = time.perf_counter()
     for i, (ids, ref) in enumerate(zip(prompts, refs)):
         for j, g in enumerate(gammas):
             M[i, j] = risk(dec, ids, ref, g, n_new)
+        done = i + 1
+        rate = (time.perf_counter() - t0) / done
+        eta = rate * (n - done)
+        bar = "#" * int(20 * done / n) + "-" * (20 - int(20 * done / n))
+        _log(f"  [{label}] [{bar}] {done}/{n} prompts  "
+             f"({rate:.1f}s/prompt, ETA {eta:4.0f}s)")
     return M
 
 
@@ -122,10 +136,13 @@ def run_coverage(models, cfg: Config | None = None, n_cal: int = 20, n_test: int
     cal = [x.to(models.device) for x in cal]
     test = [x.to(models.device) for x in test]
 
+    _log(f"[coverage] computing references ({len(cal)} cal + {len(test)} test)...")
     cal_refs = [_reference(dec, x, n_new) for x in cal]
     test_refs = [_reference(dec, x, n_new) for x in test]
-    cal_M = _risk_matrix(dec, cal, cal_refs, gammas, n_new)
-    test_M = _risk_matrix(dec, test, test_refs, gammas, n_new)
+    _log(f"[coverage] cal risk matrix ({len(cal)}x{len(gammas)})...")
+    cal_M = _risk_matrix(dec, cal, cal_refs, gammas, n_new, label="cal")
+    _log(f"[coverage] test risk matrix ({len(test)}x{len(gammas)})...")
+    test_M = _risk_matrix(dec, test, test_refs, gammas, n_new, label="test")
     gidx = {g: j for j, g in enumerate(gammas)}
 
     rows = []
